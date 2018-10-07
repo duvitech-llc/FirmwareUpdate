@@ -28,6 +28,100 @@ namespace FirmwareUpdater
 
         }
 
+        private static void dump_hex(ref byte[] byteData)
+        {
+            int x = 0;
+            int ptr = 0;
+            int length = byteData.Length;
+
+            if (byteData.Length == 0)
+            {
+                Console.Write("No Data\n\n");
+            }
+            else
+            {
+                Console.Write("\nDumping {0:D} Bytes\n", length);
+                for (x = 1; x <= length; x++)
+                {
+                    Console.Write("0x{0:X2}", byteData[ptr]);
+                    if (x % 16 == 0)
+                    {
+                        Console.Write("\n");
+                    }
+                    else
+                    {
+                        Console.Write(" ");
+                    }
+
+                    ptr++;
+                }
+
+                Console.Write("\n\n");
+            }
+        }
+
+        private static uint reverse(uint x)
+        {
+            x = ((x & 0x55555555) << 1) | ((x >> 1) & 0x55555555);
+            x = ((x & 0x33333333) << 2) | ((x >> 2) & 0x33333333);
+            x = ((x & 0x0F0F0F0F) << 4) | ((x >> 4) & 0x0F0F0F0F);
+            x = (x << 24) | ((x & 0xFF00) << 8) | ((x >> 8) & 0xFF00) | (x >> 24);
+            return x;
+        }
+
+        private static ushort crc16(byte[] data_p)
+        {
+            byte x;
+            ushort crc = 0xFFFF;
+            int length = data_p.Length;
+            int ptr = 0;
+
+            Console.Write("\nCalculating CRC on DATA:\n");
+            dump_hex(ref data_p);
+
+            while (length-- != 0)
+            {
+                x = (byte)((crc >> 8) ^ data_p[ptr]);
+                ptr++;
+                x ^= (byte)(x >> 4);
+                crc = (byte)((crc << 8) ^ ((ushort)(x << 12)) ^ ((ushort)(x << 5)) ^ x);
+            }
+
+            Console.Write("\nCalculated CRC:0x{0:X4}\n\n", crc);
+            return crc;
+        }
+
+        private static uint crc32a(byte[] message)
+        {
+            int i;
+            int j;
+            uint b;
+            uint crc;
+            int len = message.Length;
+
+            i = 0;
+            crc = 0xFFFFFFFF;
+            while (i < len)
+            {
+                b = message[i]; // Get next byte.
+                b = reverse(b); // 32-bit reversal.
+                for (j = 0; j <= 7; j++)
+                {
+                    if ((int)(crc ^ b) < 0)
+                    {
+                        crc = (crc << 1) ^ 0x04C11DB7;
+                    }
+                    else
+                    {
+                        crc = crc << 1;
+                    }
+                    b = b << 1; // Ready next msg bit.
+                }
+                i = i + 1;
+            }
+            return reverse(~crc);
+        }
+
 
         delegate void SetUiCallback(HUD_STATE state);
 
