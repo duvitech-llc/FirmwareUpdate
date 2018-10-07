@@ -1,4 +1,5 @@
 ﻿using libusbK;
+using libusbK.Examples;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -28,15 +29,19 @@ namespace FirmwareUpdater
         const ushort STM_VID = 0x0483;
         const ushort STM_PID = 0x5740;
 
-        byte EP_CDC = 0x01;
+        byte EP_CDC = 0x02;
         byte EP_DISP = 0x06;
 
         private KHOT_PARAMS hotInitParams;
         private HUD_STATE _currentState = HUD_STATE.NotDetected;
 
+        private StmTestParameters DarwinDevice;
         private WINUSB_PIPE_INFORMATION pipeInfo;
         private UsbK usb;
         private USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
+
+        private int PipeId;
+        private int AltInterfaceId;
 
         private static ushort commandId = 0;
 
@@ -143,8 +148,7 @@ namespace FirmwareUpdater
             }
             return reverse(~crc);
         }
-
-
+        
         delegate void SetUiCallback(HUD_STATE state);
 
         private void setUI(HUD_STATE state)
@@ -185,7 +189,6 @@ namespace FirmwareUpdater
             }
         }
 
-
         private void OnHotPlug(KHOT_HANDLE hotHandle,
                                       KLST_DEVINFO_HANDLE deviceInfo,
                                       KLST_SYNC_FLAG plugType)
@@ -204,15 +207,49 @@ namespace FirmwareUpdater
                 case KLST_SYNC_FLAG.ADDED:
                     plugText = "Arrival";
                     totalPluggedDeviceCount++;
-                    if (deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200"))
+                    if (deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200&MI_02"))
                     {
                         setUI(HUD_STATE.Application);
+                        if (cbNextGen.Checked)
+                        {
+                            DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x06, 128, null, -1, 4, 0);
+                        }
+                        else
+                        {
+                            DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x02, 512, null, -1, 4, 0);
+                        }
                     }
                     else if (deviceInfo.DeviceID.Contains("VID_0483&PID_5740"))
                     {
                         setUI(HUD_STATE.Bootloader);
+                        DarwinDevice = new StmTestParameters(STM_VID, STM_PID, 0, 0x01, 512, null, -1, 4, 0);
                     }
-                    break;
+
+                    if (DarwinDevice != null)
+                    {
+                        // Find and configure the device.
+                        if (!DarwinDevice.ConfigureDevice(out pipeInfo, out usb, out interfaceDescriptor))
+                        {
+                            Console.WriteLine("Device not connected");
+                            setUI(HUD_STATE.NotDetected);
+
+                        }
+                        else
+                        {
+                            if (DarwinDevice.TransferBufferSize == -1)
+                                DarwinDevice.TransferBufferSize = pipeInfo.MaximumPacketSize * 512;
+
+                            Console.WriteLine("Darwin Device Connected");
+
+                            int[] pipeTimeoutMS = new[] { 0 };
+                            usb.SetPipePolicy((byte)DarwinDevice.PipeId,
+                                                (int)PipePolicyType.PIPE_TRANSFER_TIMEOUT,
+                                                Marshal.SizeOf(typeof(int)),
+                                                pipeTimeoutMS);
+                        }
+                    }
+                break;
+
                 case KLST_SYNC_FLAG.REMOVED:
                     plugText = "Removal";
                     totalPluggedDeviceCount--;
@@ -221,7 +258,7 @@ namespace FirmwareUpdater
                     {
                         setUI(HUD_STATE.NotDetected);
                     }
-                    break;
+                break;
                 default:
                     throw new ArgumentOutOfRangeException("plugType");
             }
@@ -244,7 +281,7 @@ namespace FirmwareUpdater
             bool success = false;
             int pos = 0;
 
-            if (buffer != null)
+            if (buffer != null || buffer.Length>0)
             {
                 if (buffer.Length > 492)
                 {
@@ -305,8 +342,31 @@ namespace FirmwareUpdater
             {
                 tbStatus.Text += "Failed to send command to HUD\r\n";
             }
+            else
+            {
+                tbStatus.Text += "====> Sent " + transferred + " Bytes <====\r\n";
+            }
 
             return commandId;
+        }
+
+        private static byte[] ExtractResource(String filename)
+        {
+            System.Reflection.Assembly a = System.Reflection.Assembly.GetExecutingAssembly();
+            
+            /*
+            string[] ls = a.GetManifestResourceNames();
+            for (int z = 0; z < ls.Length; z++)
+                Console.WriteLine(ls[z]);
+            */
+
+            using (Stream resFilestream = a.GetManifestResourceStream(filename))
+            {
+                if (resFilestream == null) return null;
+                byte[] ba = new byte[resFilestream.Length];
+                resFilestream.Read(ba, 0, ba.Length);
+                return ba;
+            }
         }
 
         private int sendFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
@@ -314,52 +374,36 @@ namespace FirmwareUpdater
             return -1;
         }
 
-        private void sendRebootImage(byte pipeId)  // endpoint 0x06 for HUD
+        private void sendImageFromResource(byte pipeId, string imagename)  // endpoint 0x06 for HUD
         {
             bool success = true;
 
-            byte[] sendArray = new byte[640 * 400 * 2];
-            Array.Clear(sendArray, 0, sendArray.Length);
-            GCHandle gch = GCHandle.Alloc(sendArray, GCHandleType.Pinned);
-            int stride = 640 * 2; // 2 bytes per pixel
-            Bitmap black_bmp = new Bitmap(640, 400, stride, System.Drawing.Imaging.PixelFormat.Format16bppRgb565, gch.AddrOfPinnedObject());
+            tbStatus.Text += "Preparing special image to send\r\n";
+            byte[] sendArray = ExtractResource(imagename);
 
-            using (Graphics gfx = Graphics.FromImage(black_bmp))
-            using (SolidBrush brush = new SolidBrush(Color.FromArgb(0, 0, 0)))
+            if (sendArray != null)
             {
-                gfx.FillRectangle(brush, 0, 0, 640, 400);
-            }
+                int transferred;
+                success = usb.WritePipe(pipeId, sendArray, sendArray.Length, out transferred, IntPtr.Zero);
+                tbStatus.Text += string.Format("Buffer Length {0} Transferred {1} bytes.\r\n", sendArray.Length, transferred);
 
-            using (MemoryStream data = new MemoryStream())
-            {
-
-                black_bmp.Save(data, ImageFormat.Jpeg);
-                if (data.Position <= 0x20000)
+                if (!success)
                 {
-                    if (data.Position > 4)
-                    {
-                        int transferred;
-                        long orig_len = data.Position;
-                        data.Position = 0;
-
-
-                        success = usb.WritePipe(pipeId, data.ToArray(), data.ToArray().Length, out transferred, IntPtr.Zero);
-                        Console.WriteLine("Buffer Length {0} Transferred {1} bytes.", orig_len, transferred);
-                    }
-                    else
-                    {
-                        Console.WriteLine("Not Aligned {0}", data.Position);
-
-                    }
+                    tbStatus.Text += "Failed to send Image to HUD\r\n";
                 }
                 else
                 {
-                    Console.WriteLine("Too Large {0}", data.Position);
+                    tbStatus.Text += "====> Sent " + transferred + " Bytes <====\r\n";
                 }
+
+                usb.FlushPipe(pipeId);
             }
+            else
+            {
 
-            usb.FlushPipe(pipeId);
+                tbStatus.Text += string.Format("ERROR Resource not found {0}\r\n", imagename);
 
+            }
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -393,6 +437,23 @@ namespace FirmwareUpdater
             tbStatus.Text = "Firmware Updater v1.0\r\n";
             tbStatus.Text += "Application started\r\n";
 
+
+        }
+
+        private void btnReboot_Click(object sender, EventArgs e)
+        {
+            if (cbNextGen.Checked)
+            {
+                // send image to hud
+                sendImageFromResource(EP_DISP, @"FirmwareUpdater.images.bootloader.jpg");
+            }
+            else
+            {
+                // send serial reboot command
+
+                byte[] buf=new byte[0];
+                sendCommand(HUD_COMMAND.HC_MODE_UPD, HUD_DIR.HD_READ, ref buf);
+            }
         }
     }
 }

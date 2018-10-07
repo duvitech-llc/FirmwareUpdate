@@ -135,7 +135,7 @@ namespace libusbK.Examples
                 Console.WriteLine(interfaceDescriptor.ToString());
             }
 
-            Done:
+        Done:
             deviceList.Free();
 
             return success;
@@ -266,7 +266,7 @@ namespace libusbK.Examples
                 interfaceIndex++;
             }
 
-            FindInterfaceDone:
+        FindInterfaceDone:
             return pipeInfo.PipeId != 0;
         }
 

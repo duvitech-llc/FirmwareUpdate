@@ -108,6 +108,7 @@
             this.btnReboot.TabIndex = 7;
             this.btnReboot.Text = "Bootloader";
             this.btnReboot.UseVisualStyleBackColor = true;
+            this.btnReboot.Click += new System.EventHandler(this.btnReboot_Click);
             // 
             // lblHudStatus
             // 
