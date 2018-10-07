@@ -14,6 +14,10 @@ namespace FirmwareUpdater
     public partial class Form1 : Form
     {
         enum HUD_STATE { NotDetected=0, Application, Bootloader };
+        enum HUD_COMMAND { HC_STATUS = 0x00, HC_MODE_UPD = 0x05, HC_MODE_QUERY = 0x0A, HC_MODE_SRST = 0x0F };
+        enum HUD_DIR { HD_READ = 0x00, HD_WRITE = 0x01};
+        enum HUD_CTRL { CB_ERROR = 0x00, CB_RESPONSE = 0x22, CB_APP_IMG = 0xCC, CB_DISP_CLR = 0xFC };
+
 
         private KHOT_PARAMS hotInitParams;
         private HUD_STATE _currentState = HUD_STATE.NotDetected;
@@ -212,6 +216,16 @@ namespace FirmwareUpdater
             Console.WriteLine("Total Plugged Device Count: {0}",
                               totalPluggedDeviceCount);
             
+        }
+
+        private static int sendCommand(HUD_COMMAND cmd, HUD_DIR dir, ref byte[] buffer)
+        {
+            return -1;
+        }
+
+        private static int sendFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
+        {
+            return -1;
         }
 
         private void Form1_Load(object sender, EventArgs e)
