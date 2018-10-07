@@ -31,7 +31,11 @@ namespace FirmwareUpdater
 
         byte EP_CDC = 0x02;
         byte EP_DISP = 0x06;
+        byte EP_CDC_BL = 0x01;
+        bool isNextGen = false;
 
+        const string prefixFirmware = "FirmwareUpdater.firmware.";
+        private int EmbeddedFwMaxIndex = -1;
         private KHOT_PARAMS hotInitParams;
         private HUD_STATE _currentState = HUD_STATE.NotDetected;
 
@@ -169,6 +173,7 @@ namespace FirmwareUpdater
                         btnReboot.Enabled = false;
                         btnProgram.Enabled = false;
                         lblHudStatus.ForeColor = Color.Red;
+                        isNextGen = false;
                         lblHudStatus.Text = "HUD NOT CONNECTED";
                         break;
                     case HUD_STATE.Application:
@@ -207,45 +212,79 @@ namespace FirmwareUpdater
                 case KLST_SYNC_FLAG.ADDED:
                     plugText = "Arrival";
                     totalPluggedDeviceCount++;
-                    if (deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200&MI_02"))
+                    if (deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200"))
                     {
+                        bool deviceFound = false;
                         setUI(HUD_STATE.Application);
-                        if (cbNextGen.Checked)
+                        DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x02, 512, null, -1, 4, 0);
+
+                        if (DarwinDevice != null)
                         {
-                            DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x06, 128, null, -1, 4, 0);
+                            // Find and configure the device.
+                            if (!DarwinDevice.ConfigureDevice(out pipeInfo, out usb, out interfaceDescriptor))
+                            {
+                                DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x06, 128, null, -1, 4, 0);
+
+                                if (!DarwinDevice.ConfigureDevice(out pipeInfo, out usb, out interfaceDescriptor))
+                                {
+                                    Console.WriteLine("Device not connected");
+                                    setUI(HUD_STATE.NotDetected);
+                                }
+                                else
+                                {
+                                    Console.WriteLine("IS NEXT GEN FIRMWARE");
+                                    isNextGen = true;
+                                    deviceFound = true;
+                                }
+                            }
+                            else
+                            {
+                                deviceFound = true;
+                            }
+
+                            if (deviceFound)
+                            {
+                                if (DarwinDevice.TransferBufferSize == -1)
+                                    DarwinDevice.TransferBufferSize = pipeInfo.MaximumPacketSize * 512;
+
+                                Console.WriteLine("Darwin Device Connected");
+
+                                int[] pipeTimeoutMS = new[] { 0 };
+                                usb.SetPipePolicy((byte)DarwinDevice.PipeId,
+                                                    (int)PipePolicyType.PIPE_TRANSFER_TIMEOUT,
+                                                    Marshal.SizeOf(typeof(int)),
+                                                    pipeTimeoutMS);
+                            }
                         }
-                        else
-                        {
-                            DarwinDevice = new StmTestParameters(SIX15_VID, SIX15_PID, 0, 0x02, 512, null, -1, 4, 0);
-                        }
+
                     }
                     else if (deviceInfo.DeviceID.Contains("VID_0483&PID_5740"))
                     {
                         setUI(HUD_STATE.Bootloader);
                         DarwinDevice = new StmTestParameters(STM_VID, STM_PID, 0, 0x01, 512, null, -1, 4, 0);
-                    }
 
-                    if (DarwinDevice != null)
-                    {
-                        // Find and configure the device.
-                        if (!DarwinDevice.ConfigureDevice(out pipeInfo, out usb, out interfaceDescriptor))
+                        if (DarwinDevice != null)
                         {
-                            Console.WriteLine("Device not connected");
-                            setUI(HUD_STATE.NotDetected);
+                            // Find and configure the device.
+                            if (!DarwinDevice.ConfigureDevice(out pipeInfo, out usb, out interfaceDescriptor))
+                            {
+                                Console.WriteLine("Device not connected");
+                                setUI(HUD_STATE.NotDetected);
 
-                        }
-                        else
-                        {
-                            if (DarwinDevice.TransferBufferSize == -1)
-                                DarwinDevice.TransferBufferSize = pipeInfo.MaximumPacketSize * 512;
+                            }
+                            else
+                            {
+                                if (DarwinDevice.TransferBufferSize == -1)
+                                    DarwinDevice.TransferBufferSize = pipeInfo.MaximumPacketSize * 512;
 
-                            Console.WriteLine("Darwin Device Connected");
+                                Console.WriteLine("Darwin Device Connected");
 
-                            int[] pipeTimeoutMS = new[] { 0 };
-                            usb.SetPipePolicy((byte)DarwinDevice.PipeId,
-                                                (int)PipePolicyType.PIPE_TRANSFER_TIMEOUT,
-                                                Marshal.SizeOf(typeof(int)),
-                                                pipeTimeoutMS);
+                                int[] pipeTimeoutMS = new[] { 0 };
+                                usb.SetPipePolicy((byte)DarwinDevice.PipeId,
+                                                    (int)PipePolicyType.PIPE_TRANSFER_TIMEOUT,
+                                                    Marshal.SizeOf(typeof(int)),
+                                                    pipeTimeoutMS);
+                            }
                         }
                     }
                 break;
@@ -253,10 +292,32 @@ namespace FirmwareUpdater
                 case KLST_SYNC_FLAG.REMOVED:
                     plugText = "Removal";
                     totalPluggedDeviceCount--;
-                    if ((deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200")) ||
-                        (deviceInfo.DeviceID.Contains("VID_0483&PID_5740")))
+                    if (deviceInfo.DeviceID.Contains("VID_2DC4&PID_0200"))
                     {
-                        setUI(HUD_STATE.NotDetected);
+                        if (DarwinDevice != null)
+                        {
+                            if (isNextGen)
+                            {
+                                usb.FlushPipe(EP_DISP);
+                            }
+                            else
+                            {
+                                usb.FlushPipe(EP_CDC);
+                            }
+
+                            DarwinDevice.Free();
+                            usb.Free();
+                            DarwinDevice = null;
+                            setUI(HUD_STATE.NotDetected);
+                        }
+                        else if (deviceInfo.DeviceID.Contains("VID_0483&PID_5740"))
+                        {
+                            usb.FlushPipe(EP_CDC_BL);
+                            DarwinDevice.Free();
+                            usb.Free();
+                            DarwinDevice = null;
+                            setUI(HUD_STATE.NotDetected);
+                        }
                     }
                 break;
                 default:
@@ -354,12 +415,6 @@ namespace FirmwareUpdater
         {
             System.Reflection.Assembly a = System.Reflection.Assembly.GetExecutingAssembly();
             
-            /*
-            string[] ls = a.GetManifestResourceNames();
-            for (int z = 0; z < ls.Length; z++)
-                Console.WriteLine(ls[z]);
-            */
-
             using (Stream resFilestream = a.GetManifestResourceStream(filename))
             {
                 if (resFilestream == null) return null;
@@ -369,9 +424,107 @@ namespace FirmwareUpdater
             }
         }
 
-        private int sendFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
+        private bool sendBootloaderFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
         {
-            return -1;
+
+            //tbStatus.Text += "Preparing data for transport\r\n";
+            uint calcCrc = 0x00000000;
+            int transferred = 0;
+            bool success = false;
+            int packet = 0;
+            bool bStartPacket = true;
+            int pos = 0;
+            int hPos = 0;
+            uint bytesRemaining = (uint)buffer.Length;
+
+            if (bCrc)
+            {
+                //tbStatus.Text += "Calculating CRC ";
+                calcCrc = crc32a(buffer);
+                //tbStatus.Text += string.Format(" 0x{0:X}\r\n",calcCrc);
+            }
+
+            //tbStatus.Text += string.Format("Sending data {0} remaining\r\n", bytesRemaining);
+
+            while (bytesRemaining > 0)
+            {
+                ushort gd = 500;
+                ushort snd_len = 0;
+                byte[] arr;
+                if (bStartPacket)
+                {
+                    if (bytesRemaining > 500)
+                    {
+                        snd_len = 512;
+                        gd = 500;
+                    }
+                    else
+                    {
+                        gd = (ushort)bytesRemaining;
+                        snd_len = (ushort)(gd + 12);
+                    }
+
+                    arr = new byte[snd_len];
+                    /* packet header */
+                    arr[0] = (byte)HUD_SB.SB_IMGDATA; /* start byte */
+                    arr[1] = (byte)ctrl;  /* control flag */
+
+                    arr[2] = (byte)gd;
+                    arr[3] = (byte)(gd >> 8);
+
+                    arr[4] = (byte)bytesRemaining;
+                    arr[5] = (byte)(bytesRemaining >> 8);
+                    arr[6] = (byte)(bytesRemaining >> 16);
+                    arr[7] = (byte)(bytesRemaining >> 24);
+
+
+                    arr[8] = (byte)calcCrc;
+                    arr[9] = (byte)(calcCrc >> 8);
+                    arr[10] = (byte)(calcCrc >> 16);
+                    arr[11] = (byte)(calcCrc >> 24);  /* CRC */
+
+                    hPos = 12;
+                    bStartPacket = false;
+                }
+                else
+                {
+                    if (bytesRemaining > 512)
+                    {
+                        snd_len = 512;
+                        gd = 512;
+                    }
+                    else
+                    {
+                        gd = (ushort)bytesRemaining;
+                        snd_len = gd;
+                    }
+
+                    arr = new byte[snd_len];
+                    hPos = 0;
+                }
+
+                /* copy data into buffer for sending */
+                for(int z=0; z<gd; z++)
+                {
+                    arr[hPos] = buffer[pos];
+                    pos++;
+                    hPos++;
+                    bytesRemaining--;
+                }
+
+                // tbStatus.Text += string.Format("====> Packet ID: {0} Packet Length: {1} <====\r\n", packet, arr.Length);
+                /* send via BL CDC */
+                success = usb.WritePipe(EP_CDC_BL, arr, arr.Length, out transferred, IntPtr.Zero);
+                if (!success)
+                {
+                    break;
+                }
+                
+                packet++;
+
+            }
+
+            return success;
         }
 
         private void sendImageFromResource(byte pipeId, string imagename)  // endpoint 0x06 for HUD
@@ -409,10 +562,20 @@ namespace FirmwareUpdater
         private void Form1_Load(object sender, EventArgs e)
         {
             _currentState = HUD_STATE.NotDetected;
+            System.Reflection.Assembly a = System.Reflection.Assembly.GetExecutingAssembly();
+            EmbeddedFwMaxIndex = 0;
+            string[] ls = a.GetManifestResourceNames();
+            for (int z = 0; z < ls.Length; z++)
+            {
+                if (ls[z].StartsWith(prefixFirmware))
+                {
+                    cbFirmwareSelector.Items.Add(ls[z].Substring(prefixFirmware.Length));
+                    EmbeddedFwMaxIndex++;
+                }
+            }
 
-            cbFirmwareSelector.Items.Add("Darwin Proto Firmware");
-            cbFirmwareSelector.Items.Add("Darwin FW 4.20");
-            cbFirmwareSelector.Items.Add("Darwin FW 4.21");
+            /* custom option */
+            Console.WriteLine("Firmware Max Index {0}", EmbeddedFwMaxIndex-1);
             cbFirmwareSelector.Items.Add("Select Custom File");
 
             setUI(_currentState);
@@ -442,7 +605,7 @@ namespace FirmwareUpdater
 
         private void btnReboot_Click(object sender, EventArgs e)
         {
-            if (cbNextGen.Checked)
+            if (isNextGen)
             {
                 // send image to hud
                 sendImageFromResource(EP_DISP, @"FirmwareUpdater.images.bootloader.jpg");
@@ -453,6 +616,44 @@ namespace FirmwareUpdater
 
                 byte[] buf=new byte[0];
                 sendCommand(HUD_COMMAND.HC_MODE_UPD, HUD_DIR.HD_READ, ref buf);
+            }
+        }
+
+        private void btnProgram_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine(cbFirmwareSelector.SelectedIndex);
+            if (cbFirmwareSelector.SelectedIndex == -1)
+            {
+                tbStatus.Text += "Invalid Selection\r\n";
+                MessageBox.Show("Please select firmware version to load");
+            }
+            else if (cbFirmwareSelector.SelectedIndex == EmbeddedFwMaxIndex)
+            {
+                tbStatus.Text += "Custom file selection not available\r\n";
+                MessageBox.Show("Not Available: Will be implemented next version");
+            }
+            else {
+                string fwName = cbFirmwareSelector.Items[cbFirmwareSelector.SelectedIndex].ToString();
+                tbStatus.Text += string.Format("Retrieving firmware to load: {0}\r\n", fwName);
+                byte[] fwArray = ExtractResource(prefixFirmware + fwName);
+                if (fwArray == null || fwArray.Length == 0)
+                {
+                    tbStatus.Text += "Error retrieving firmware\r\n";
+                    MessageBox.Show("Error retrieving firmware");
+                }
+                else
+                {
+                    tbStatus.Text += string.Format("Sending firmware of size {0} bytes\r\n", fwArray.Length);
+                    if(sendBootloaderFrame(ref fwArray, true, HUD_CTRL.CB_APP_IMG))
+                    {
+                        MessageBox.Show("Firmware Update Completed\r\nPower Cycle Device");
+                    }
+                    else
+                    {
+                        MessageBox.Show("Firmware Update Failed\r\n");
+                    }
+
+                }
             }
         }
     }

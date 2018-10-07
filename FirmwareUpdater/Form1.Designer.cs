@@ -29,7 +29,6 @@
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
-            this.cbNextGen = new System.Windows.Forms.CheckBox();
             this.cbFirmwareSelector = new System.Windows.Forms.ComboBox();
             this.label1 = new System.Windows.Forms.Label();
             this.btnProgram = new System.Windows.Forms.Button();
@@ -38,18 +37,6 @@
             this.btnReboot = new System.Windows.Forms.Button();
             this.lblHudStatus = new System.Windows.Forms.Label();
             this.SuspendLayout();
-            // 
-            // cbNextGen
-            // 
-            this.cbNextGen.AutoSize = true;
-            this.cbNextGen.Font = new System.Drawing.Font("Microsoft Sans Serif", 8.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.cbNextGen.Location = new System.Drawing.Point(481, 60);
-            this.cbNextGen.Name = "cbNextGen";
-            this.cbNextGen.Size = new System.Drawing.Size(133, 17);
-            this.cbNextGen.TabIndex = 0;
-            this.cbNextGen.Text = "Next Gen Firmware";
-            this.cbNextGen.UseVisualStyleBackColor = true;
-            this.cbNextGen.CheckedChanged += new System.EventHandler(this.checkBox1_CheckedChanged);
             // 
             // cbFirmwareSelector
             // 
@@ -77,6 +64,7 @@
             this.btnProgram.TabIndex = 3;
             this.btnProgram.Text = "Update HUD";
             this.btnProgram.UseVisualStyleBackColor = true;
+            this.btnProgram.Click += new System.EventHandler(this.btnProgram_Click);
             // 
             // tbStatus
             // 
@@ -115,7 +103,7 @@
             this.lblHudStatus.AutoSize = true;
             this.lblHudStatus.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lblHudStatus.ForeColor = System.Drawing.Color.Red;
-            this.lblHudStatus.Location = new System.Drawing.Point(405, 9);
+            this.lblHudStatus.Location = new System.Drawing.Point(419, 23);
             this.lblHudStatus.Name = "lblHudStatus";
             this.lblHudStatus.Size = new System.Drawing.Size(187, 20);
             this.lblHudStatus.TabIndex = 8;
@@ -133,7 +121,6 @@
             this.Controls.Add(this.btnProgram);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.cbFirmwareSelector);
-            this.Controls.Add(this.cbNextGen);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MaximizeBox = false;
             this.MinimizeBox = false;
@@ -146,8 +133,6 @@
         }
 
         #endregion
-
-        private System.Windows.Forms.CheckBox cbNextGen;
         private System.Windows.Forms.ComboBox cbFirmwareSelector;
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Button btnProgram;
