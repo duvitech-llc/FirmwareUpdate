@@ -12,6 +12,10 @@ namespace FirmwareUpdater
 {
     public partial class Form1 : Form
     {
+        enum HUD_STATE { NotDetected=0, Application, Bootloader };
+
+        private HUD_STATE _currentState = HUD_STATE.NotDetected;
+
         public Form1()
         {
             InitializeComponent();
@@ -24,6 +28,9 @@ namespace FirmwareUpdater
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            _currentState = HUD_STATE.NotDetected;
+
+
 
         }
     }
