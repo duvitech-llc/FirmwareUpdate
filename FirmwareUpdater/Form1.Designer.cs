@@ -82,10 +82,11 @@
             // 
             this.tbStatus.BackColor = System.Drawing.Color.WhiteSmoke;
             this.tbStatus.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.tbStatus.Enabled = false;
             this.tbStatus.Location = new System.Drawing.Point(27, 117);
             this.tbStatus.Multiline = true;
             this.tbStatus.Name = "tbStatus";
+            this.tbStatus.ReadOnly = true;
+            this.tbStatus.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.tbStatus.Size = new System.Drawing.Size(463, 86);
             this.tbStatus.TabIndex = 5;
             // 

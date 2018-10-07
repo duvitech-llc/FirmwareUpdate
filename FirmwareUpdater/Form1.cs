@@ -4,7 +4,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -16,11 +19,26 @@ namespace FirmwareUpdater
         enum HUD_STATE { NotDetected=0, Application, Bootloader };
         enum HUD_COMMAND { HC_STATUS = 0x00, HC_MODE_UPD = 0x05, HC_MODE_QUERY = 0x0A, HC_MODE_SRST = 0x0F };
         enum HUD_DIR { HD_READ = 0x00, HD_WRITE = 0x01};
-        enum HUD_CTRL { CB_ERROR = 0x00, CB_RESPONSE = 0x22, CB_APP_IMG = 0xCC, CB_DISP_CLR = 0xFC };
+        enum HUD_CTRL { CB_ERROR = 0x00, CB_RESPONSE = 0x22, CB_APP_IMG = 0xCC, CB_DISP_CLR = 0xFC, CB_DISP_IMG = 0xFF };
+        enum HUD_SB { SB_ERROR = 0x00, SB_TEST_FRAME = 0x0A, SB_IMGDATA = 0xCA, SB_COMMAND = 0xA5, SB_RESPONSE = 0xD5 };
 
+        const ushort SIX15_VID = 0x2DC4;
+        const ushort SIX15_PID = 0x0200;
+
+        const ushort STM_VID = 0x0483;
+        const ushort STM_PID = 0x5740;
+
+        byte EP_CDC = 0x01;
+        byte EP_DISP = 0x06;
 
         private KHOT_PARAMS hotInitParams;
         private HUD_STATE _currentState = HUD_STATE.NotDetected;
+
+        private WINUSB_PIPE_INFORMATION pipeInfo;
+        private UsbK usb;
+        private USB_INTERFACE_DESCRIPTOR interfaceDescriptor;
+
+        private static ushort commandId = 0;
 
         public Form1()
         {
@@ -218,14 +236,130 @@ namespace FirmwareUpdater
             
         }
 
-        private static int sendCommand(HUD_COMMAND cmd, HUD_DIR dir, ref byte[] buffer)
+        private int sendCommand(HUD_COMMAND cmd, HUD_DIR dir, ref byte[] buffer)
+        {
+            uint calcCrc = 0x00000000;
+            int transferred = 0;
+            ushort cmdDataLen = 0;
+            bool success = false;
+            int pos = 0;
+
+            if (buffer != null)
+            {
+                if (buffer.Length > 492)
+                {
+                    tbStatus.Text += "Invalid Buffer Size mus tbe less than 492 bytes\r\n";
+                    return -1;
+                }
+                cmdDataLen = (ushort)buffer.Length;
+            }
+
+            tbStatus.Text += "Sending data\r\n";
+
+            /* packet header */
+            byte[] temp = new byte[20 + cmdDataLen];
+            temp[0] = (byte)HUD_SB.SB_COMMAND; /* start byte */
+            temp[1] = (byte)HUD_CTRL.CB_DISP_IMG;  /* control flag */
+
+            ushort len1 = (ushort)(8 + cmdDataLen);
+            temp[2] = (byte)(len1 >> 8);
+            temp[3] = (byte)len1;
+
+            uint len2 = (uint)(8 + cmdDataLen);
+            temp[4] = (byte)(len2 >> 24);
+            temp[5] = (byte)(len2 >> 16);
+            temp[6] = (byte)(len2 >> 8);
+            temp[7] = (byte)len2;
+
+            temp[8] = (byte)(calcCrc >> 24);  /* CRC */
+            temp[9] = (byte)(calcCrc >> 16);
+            temp[10] = (byte)(calcCrc >> 8);
+            temp[11] = (byte)calcCrc;
+
+            /* command header */
+            temp[12] = (byte)cmd; /* Command Byte */
+            temp[13] = (byte)dir; /* read 0x00 or write 0x01 command */
+            commandId++;
+            temp[14] = (byte)(commandId >> 8); /* Command ID number */
+            temp[15] = (byte)commandId;
+
+            temp[16] = (byte)(cmdDataLen >> 8); /* data length */
+            temp[17] = (byte)cmdDataLen;
+
+            temp[18] = (byte)0x00; /* reserved */
+            temp[19] = (byte)0x00;
+
+            /* command data */
+            pos = 20;
+            if (cmdDataLen > 0)
+            {
+                for (int x = 0; x < cmdDataLen; x++)
+                    temp[pos] = buffer[x];
+            }
+
+            tbStatus.Text += "====> Packet Length: " + cmdDataLen + " <====\r\n";
+
+            /* send via CDC */
+            success = usb.WritePipe(EP_CDC, temp, temp.Length, out transferred, IntPtr.Zero);
+            if (!success)
+            {
+                tbStatus.Text += "Failed to send command to HUD\r\n";
+            }
+
+            return commandId;
+        }
+
+        private int sendFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
         {
             return -1;
         }
 
-        private static int sendFrame(ref byte[] buffer, bool bCrc, HUD_CTRL ctrl)
+        private void sendRebootImage(byte pipeId)  // endpoint 0x06 for HUD
         {
-            return -1;
+            bool success = true;
+
+            byte[] sendArray = new byte[640 * 400 * 2];
+            Array.Clear(sendArray, 0, sendArray.Length);
+            GCHandle gch = GCHandle.Alloc(sendArray, GCHandleType.Pinned);
+            int stride = 640 * 2; // 2 bytes per pixel
+            Bitmap black_bmp = new Bitmap(640, 400, stride, System.Drawing.Imaging.PixelFormat.Format16bppRgb565, gch.AddrOfPinnedObject());
+
+            using (Graphics gfx = Graphics.FromImage(black_bmp))
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(0, 0, 0)))
+            {
+                gfx.FillRectangle(brush, 0, 0, 640, 400);
+            }
+
+            using (MemoryStream data = new MemoryStream())
+            {
+
+                black_bmp.Save(data, ImageFormat.Jpeg);
+                if (data.Position <= 0x20000)
+                {
+                    if (data.Position > 4)
+                    {
+                        int transferred;
+                        long orig_len = data.Position;
+                        data.Position = 0;
+
+
+                        success = usb.WritePipe(pipeId, data.ToArray(), data.ToArray().Length, out transferred, IntPtr.Zero);
+                        Console.WriteLine("Buffer Length {0} Transferred {1} bytes.", orig_len, transferred);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Not Aligned {0}", data.Position);
+
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Too Large {0}", data.Position);
+                }
+            }
+
+            usb.FlushPipe(pipeId);
+
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -256,7 +390,8 @@ namespace FirmwareUpdater
             // Start hot-plug detection.
             HotK hot = new HotK(ref hotInitParams);
 
-            tbStatus.Text = "Firmware Updater application started";
+            tbStatus.Text = "Firmware Updater v1.0\r\n";
+            tbStatus.Text += "Application started\r\n";
 
         }
     }
