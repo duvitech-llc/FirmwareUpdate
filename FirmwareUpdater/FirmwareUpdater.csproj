@@ -71,10 +71,10 @@
       <DesignTime>True</DesignTime>
     </Compile>
     <EmbeddedResource Include="firmware\Darwin_Firmware_next.bin" />
-    <EmbeddedResource Include="firmware\Darwin_Firmware_v4_18.bin" />
     <EmbeddedResource Include="firmware\Darwin_Firmware_v4_19.bin" />
     <EmbeddedResource Include="firmware\Darwin_Firmware_v4_20.bin" />
     <EmbeddedResource Include="firmware\Darwin_Firmware_v4_21.bin" />
+    <EmbeddedResource Include="firmware\darwin-firmware_v5.00r1.bin" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
